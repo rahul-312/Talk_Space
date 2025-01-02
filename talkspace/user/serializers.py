@@ -9,16 +9,22 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['email', 'phone_number', 'first_name', 'last_name', 'gender', 'password']
+        fields = ['email', 'phone_number', 'username', 'first_name', 'last_name', 'gender', 'password']
 
     def validate_phone_number(self, value):
-        if not re.match(r'^\+91\d{10}$', value):
-            raise ValidationError("Phone number must start with +91 followed by 10 digits.")
+        if value and not re.match(r'^\+\d{1,4}\d{10}$', value):
+            raise ValidationError("Phone number must start with a country code followed by 10 digits.")
         return value
 
     def validate_email(self, value):
-        if not value.endswith('@gmail.com'):
+        if value and not value.endswith('@gmail.com'):
             raise ValidationError("Email must be a Gmail address.")
+        return value
+
+    def validate_username(self, value):
+        if value:
+            if User.objects.filter(username=value).exists():
+                raise ValidationError("Username is already taken.")
         return value
 
     def validate_password(self, value):
@@ -32,6 +38,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         user = User.objects.create_user(
             email=validated_data.get('email'),
             phone_number=validated_data.get('phone_number'),
+            username=validated_data.get('username'),
             first_name=validated_data['first_name'],
             last_name=validated_data['last_name'],
             gender=validated_data['gender'],
@@ -39,21 +46,23 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         )
         return user
 
-
 class UserLoginSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False)
     phone_number = serializers.CharField(max_length=15, required=False)
+    username = serializers.CharField(max_length=150, required=False)
     password = serializers.CharField(write_only=True)
 
     def validate(self, data):
-        if not data.get('email') and not data.get('phone_number'):
-            raise serializers.ValidationError("Email or phone number is required.")
+        if not data.get('email') and not data.get('phone_number') and not data.get('username'):
+            raise serializers.ValidationError("Email, phone number, or username is required.")
 
         user = None
         if data.get('email'):
             user = User.objects.filter(email=data['email']).first()
         elif data.get('phone_number'):
             user = User.objects.filter(phone_number=data['phone_number']).first()
+        elif data.get('username'):
+            user = User.objects.filter(username=data['username']).first()
 
         if user is None or not user.check_password(data['password']):
             raise serializers.ValidationError("Invalid credentials.")
