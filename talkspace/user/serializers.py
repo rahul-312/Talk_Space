@@ -75,3 +75,8 @@ class UserLoginSerializer(serializers.Serializer):
             'access': str(refresh.access_token),
             'refresh': str(refresh)
         }
+    
+class UserListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['email', 'phone_number', 'username', 'first_name', 'last_name', 'gender']
