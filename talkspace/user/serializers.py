@@ -1,7 +1,7 @@
 import re
 from rest_framework import serializers
 from django.core.exceptions import ValidationError
-from .models import User
+from .models import User, FriendRequest
 from rest_framework_simplejwt.tokens import RefreshToken
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -80,3 +80,24 @@ class UserListSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['email', 'phone_number', 'username', 'first_name', 'last_name', 'gender']
+    
+class FriendRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FriendRequest
+        fields = ['id', 'receiver', 'status', 'created_at']
+        read_only_fields = ['id', 'status', 'created_at']
+
+    def create(self, validated_data):
+        sender = self.context['request'].user
+        receiver = validated_data['receiver']
+
+        if sender == receiver:
+            raise serializers.ValidationError("You cannot send a friend request to yourself.")
+
+        if FriendRequest.objects.filter(sender=sender, receiver=receiver).exists():
+            raise serializers.ValidationError("Friend request already sent.")
+
+        if FriendRequest.objects.filter(sender=receiver, receiver=sender, status='accepted').exists():
+            raise serializers.ValidationError("You are already friends.")
+
+        return FriendRequest.objects.create(sender=sender, receiver=receiver)

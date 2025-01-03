@@ -1,8 +1,8 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer
-from .models import User
+from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer, FriendRequestSerializer
+from .models import User, FriendRequest
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
 class UserRegistrationView(APIView):
@@ -44,3 +44,42 @@ class UserSearchView(APIView):
                 {"error": "User not found."},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+class SendFriendRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = FriendRequestSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            friend_request = serializer.save()
+            response_serializer = FriendRequestSerializer(friend_request)
+            return Response(
+                {
+                    "message": "Friend request sent!",
+                    "friend_request": response_serializer.data,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class RespondToFriendRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, request_id):
+        try:
+            friend_request = FriendRequest.objects.get(id=request_id, receiver=request.user)
+        except FriendRequest.DoesNotExist:
+            return Response({"error": "Friend request not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        action = request.data.get('action')
+        if action == 'accept':
+            friend_request.status = 'accepted'
+            friend_request.save()
+            return Response({"message": "Friend request accepted!"}, status=status.HTTP_200_OK)
+        elif action == 'reject':
+            friend_request.status = 'rejected'
+            friend_request.save()
+            return Response({"message": "Friend request rejected."}, status=status.HTTP_200_OK)
+        else:
+            return Response({"error": "Invalid action."}, status=status.HTTP_400_BAD_REQUEST)
