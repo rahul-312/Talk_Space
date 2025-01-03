@@ -1,9 +1,12 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .serializers import UserRegistrationSerializer , UserLoginSerializer
+from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer
+from .models import User
+from rest_framework.permissions import IsAuthenticated, AllowAny
 
 class UserRegistrationView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
@@ -12,6 +15,7 @@ class UserRegistrationView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 class UserLoginView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = UserLoginSerializer(data=request.data)
         if serializer.is_valid():
@@ -19,4 +23,10 @@ class UserLoginView(APIView):
             tokens = serializer.get_tokens_for_user(user)
             return Response({"message": "Login successful", "tokens": tokens}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
+class UserListView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        users = User.objects.all()
+        serializer = UserListSerializer(users, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
