@@ -4,6 +4,8 @@ from rest_framework.views import APIView
 from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer, FriendRequestSerializer
 from .models import User, FriendRequest
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from django.db.models import Q
+from rest_framework_simplejwt.tokens import RefreshToken
 
 class UserRegistrationView(APIView):
     permission_classes = [AllowAny]
@@ -83,3 +85,34 @@ class RespondToFriendRequestView(APIView):
             return Response({"message": "Friend request rejected."}, status=status.HTTP_200_OK)
         else:
             return Response({"error": "Invalid action."}, status=status.HTTP_400_BAD_REQUEST)
+    
+class FriendsListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        friends = FriendRequest.objects.filter(
+            Q(sender=user) | Q(receiver=user),
+            status='accepted'
+        )
+        friends_list = [
+            {
+                "id": friend.sender.id if friend.sender != user else friend.receiver.id,
+                "username": friend.sender.username if friend.sender != user else friend.receiver.username
+            }
+            for friend in friends
+        ]
+
+        return Response({"friends": friends_list}, status=status.HTTP_200_OK)
+
+class UserLogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            refresh_token = request.data["refresh"]
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            return Response({"message": "Logout successful!"}, status=status.HTTP_205_RESET_CONTENT)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
