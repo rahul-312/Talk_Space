@@ -1,7 +1,7 @@
 import re
 from rest_framework import serializers
 from django.core.exceptions import ValidationError
-from .models import User, FriendRequest
+from .models import User, FriendRequest, ChatMessage, ChatRoom
 from rest_framework_simplejwt.tokens import RefreshToken
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -101,3 +101,16 @@ class FriendRequestSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("You are already friends.")
 
         return FriendRequest.objects.create(sender=sender, receiver=receiver)
+    
+class ChatRoomSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ChatRoom
+        fields = ['id', 'name', 'users', 'created_at']
+        read_only_fields = ['created_at']
+
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ChatMessage
+        fields = ['id', 'room', 'user', 'message', 'timestamp']
+        read_only_fields = ['id', 'room', 'user', 'timestamp']
