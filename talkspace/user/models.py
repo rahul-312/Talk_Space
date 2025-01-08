@@ -58,6 +58,13 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     class Meta:
         db_table = 'user'
+    
+    def get_friends(self):
+        """Retrieve friends of the user."""
+        sent_friends = FriendRequest.objects.filter(sender=self, status='accepted').values_list('receiver', flat=True)
+        received_friends = FriendRequest.objects.filter(receiver=self, status='accepted').values_list('sender', flat=True)
+        friend_ids = list(sent_friends) + list(received_friends)
+        return User.objects.filter(id__in=friend_ids)
 
     def __str__(self):
         return self.email if self.email else self.phone_number
@@ -74,3 +81,25 @@ class FriendRequest(models.Model):
 
     class Meta:
         unique_together = ('sender', 'receiver')
+
+class ChatRoom(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    users = models.ManyToManyField(User, related_name='chatrooms')
+    is_deleted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+    def get_other_user(self, user):
+        """Helper function to get the other user in a two-user chat room."""
+        return self.users.exclude(id=user.id).first()
+
+class ChatMessage(models.Model):
+    room = models.ForeignKey(ChatRoom, related_name='messages', on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    message = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Message by {self.user} in {self.room.name} at {self.timestamp}"
