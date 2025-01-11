@@ -108,24 +108,6 @@ class ChatRoomSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'users', 'created_at']
         read_only_fields = ['created_at']
 
-    def create(self, validated_data):
-        # Extract the users from the validated data
-        users = validated_data.get('users', [])
-
-        # Generate a dynamic name based on the users' names
-        if len(users) == 2:
-            user_names = [str(user.username) for user in users]
-            # Creating a dynamic name such as "Chat with User1 and User2"
-            name = f"Chat with {user_names[0]} and {user_names[1]}"
-        else:
-            name = "Group Chat"  # Default name for group chat
-
-        # Add the generated name to the validated data
-        validated_data['name'] = name
-
-        # Create the ChatRoom instance with the dynamically set name
-        chatroom = super().create(validated_data)
-        return chatroom
 
 class ChatMessageSerializer(serializers.ModelSerializer):
     class Meta:
