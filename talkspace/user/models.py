@@ -83,7 +83,7 @@ class FriendRequest(models.Model):
         unique_together = ('sender', 'receiver')
 
 class ChatRoom(models.Model):
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255, blank=True, null=True)
     users = models.ManyToManyField(User, related_name='chatrooms')
     is_deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
