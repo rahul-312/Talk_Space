@@ -127,71 +127,51 @@ class ChatRoomListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        """Retrieve chat rooms for a specific user if user_id is provided."""
-        user_id = request.query_params.get('user_id')
-        if user_id:
-            chatrooms = ChatRoom.objects.filter(is_deleted=False, users__id=user_id)  # Use users__id for filtering
-        else:
-            chatrooms = ChatRoom.objects.filter(is_deleted=False)
+        """Retrieve all chat rooms."""
+        chatrooms = ChatRoom.objects.filter(is_deleted=False)
         serializer = ChatRoomSerializer(chatrooms, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request, *args, **kwargs):
         """Create a new chat room."""
-        user_ids = request.data.get('users', [])
+        other_user_ids = request.data.get('users', [])
 
-        if not user_ids or len(user_ids) != 2:
+        # Ensure at least one friend's user ID is provided
+        if not other_user_ids or len(other_user_ids) == 0:
             return Response(
-                {"detail": "Exactly two user IDs are required to create a chat room."},
+                {"detail": "At least one user's ID is required to create a chat room."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Get the authenticated user
         authenticated_user = request.user
-        other_user_ids = set(user_ids) - {authenticated_user.id}
 
-        if len(other_user_ids) != 1:
+        # Validate that all provided user IDs are friends of the authenticated user
+        friends = authenticated_user.get_friends().filter(id__in=other_user_ids)
+        if friends.count() != len(other_user_ids):
             return Response(
-                {"detail": "You can only create a chat room with exactly one friend."},
+                {"detail": "Some users are not your friends or do not exist."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        other_user_id = other_user_ids.pop()  # Get the second user ID
-        other_user = User.objects.filter(id=other_user_id).first()
+        # Check for duplicate room (only for one-on-one chat)
+        if len(other_user_ids) == 1:
+            existing_room = ChatRoom.objects.annotate(user_count=models.Count('users')).filter(
+                users=authenticated_user
+            ).filter(
+                users=friends.first(), user_count=2
+            ).first()
+            if existing_room:
+                return Response(
+                    {"detail": "A one-on-one chat room already exists with this friend."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        if not other_user:
-            return Response(
-                {"detail": "The specified user does not exist."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if not authenticated_user.get_friends().filter(id=other_user.id).exists():
-            return Response(
-                {"detail": "You are not friends with the specified user."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not other_user.get_friends().filter(id=authenticated_user.id).exists():
-            return Response(
-                {"detail": "The specified user is not friends with you."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        existing_room = ChatRoom.objects.filter(
-            Q(users=authenticated_user) & Q(users=other_user)
-        ).first()
-
-        if existing_room:
-            return Response(
-                {"detail": "A one-on-one chat room already exists with this user."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        data = {
-            "users": [authenticated_user.id, other_user.id]
-        }
-        serializer = ChatRoomSerializer(data=data)
+        # Create the chat room
+        serializer = ChatRoomSerializer(data=request.data)
         if serializer.is_valid():
             chatroom = serializer.save()
-            chatroom.users.add(authenticated_user, other_user)  # Add both users
+            chatroom.users.add(authenticated_user, *friends)  # Add authenticated user and friends
             chatroom.save()
 
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -237,6 +217,8 @@ class ChatMessageListCreateView(APIView):
         room_id = request.query_params.get('room_id')
         if not room_id:
             return Response({"error": "room_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Ensure the room exists
         try:
             room = ChatRoom.objects.get(id=room_id)
         except ChatRoom.DoesNotExist:
@@ -251,12 +233,18 @@ class ChatMessageListCreateView(APIView):
         room_id = request.data.get('room_id')
         if not room_id:
             return Response({"error": "room_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Ensure the room exists
         try:
             room = ChatRoom.objects.get(id=room_id)
         except ChatRoom.DoesNotExist:
             return Response({"error": "Chat room does not exist."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Ensure the user is part of the chat room
         if request.user not in room.users.all():
             return Response({"error": "User is not part of this chat room."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Validate and save the message
 
         serializer = ChatMessageSerializer(data=request.data)
         if serializer.is_valid():
