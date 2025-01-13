@@ -207,7 +207,8 @@ class ChatRoomDetailView(APIView):
         chatroom.save()
         return Response({"detail": "Chat room deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
 
-
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 class ChatMessageListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -244,9 +245,23 @@ class ChatMessageListCreateView(APIView):
             return Response({"error": "User is not part of this chat room."}, status=status.HTTP_403_FORBIDDEN)
 
         # Validate and save the message
+
         serializer = ChatMessageSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(user=request.user, room=room)
+            # Save the message
+            message = serializer.save(user=request.user, room=room)
+
+            # Send the message to WebSocket clients in real-time
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f"chat_{room_id}",  # The group name for the chat room
+                {
+                    "type": "chat_message",
+                    "message": message.message,
+                    "user": request.user.username
+                }
+            )
+
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
