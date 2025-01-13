@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-(o$81^a&-$l%gri6rbw=4rgg29w=e8a(4(5@$h34e4gts&%0q0
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 
 AUTH_USER_MODEL = 'user.User'
 
@@ -165,10 +165,7 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            "hosts": [('127.0.0.1', 6380)],
-        },
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
     },
 }
