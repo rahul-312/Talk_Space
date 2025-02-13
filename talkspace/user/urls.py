@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistrationView, UserLoginView, UserListView, UserSearchView, SendFriendRequestView, RespondToFriendRequestView, FriendsListView, UserLogoutView, ChatRoomListCreateView, ChatRoomDetailView, ChatMessageListCreateView
+from .views import UserRegistrationView, UserLoginView, UserListView, UserSearchView, SendFriendRequestView, RespondToFriendRequestView, FriendsListView, UserLogoutView, ChatRoomListCreateView, ChatRoomDetailView, ChatMessageListCreateView ,PendingFriendRequestsView
 
 
 urlpatterns = [
@@ -9,6 +9,7 @@ urlpatterns = [
     path('user-search/<str:username>/', UserSearchView.as_view(), name='user-search'),
     path('send-friend-request/', SendFriendRequestView.as_view(), name='send-friend-request'),
     path('respond-to-friend-request/<int:request_id>/', RespondToFriendRequestView.as_view(), name='respond-to-friend-request'),
+    path('pending-requests/', PendingFriendRequestsView.as_view(), name='pending_requests'),
     path('friend-list/', FriendsListView.as_view(), name='friend-list'),
     path('logout/', UserLogoutView.as_view(), name='user-logout'),
     path('chatrooms/', ChatRoomListCreateView.as_view(), name='chatroom-list-create'),

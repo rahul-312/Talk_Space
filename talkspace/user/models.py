@@ -95,6 +95,17 @@ class ChatRoom(models.Model):
         """Helper function to get the other user in a two-user chat room."""
         return self.users.exclude(id=user.id).first()
 
+    def save(self, *args, **kwargs):
+        # Save the ChatRoom instance to get an ID before adding users
+        is_new = self._state.adding
+        if is_new:
+            super().save(*args, **kwargs)  # Save initially to get the id
+            if not self.name:
+                # Generate name for the chat room after saving (now that it has an ID)
+                user_ids = sorted(self.users.values_list('id', flat=True))
+                self.name = ' & '.join([str(user_id) for user_id in user_ids])  # Use IDs or usernames here
+            super().save(*args, **kwargs)
+
 class ChatMessage(models.Model):
     room = models.ForeignKey(ChatRoom, related_name='messages', on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -103,3 +114,8 @@ class ChatMessage(models.Model):
 
     def __str__(self):
         return f"Message by {self.user} in {self.room.name} at {self.timestamp}"
+
+    class Meta:
+        verbose_name = "Chat Message"
+        verbose_name_plural = "Chat Messages"
+        ordering = ['-timestamp']

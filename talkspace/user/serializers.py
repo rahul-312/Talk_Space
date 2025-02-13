@@ -82,10 +82,21 @@ class UserListSerializer(serializers.ModelSerializer):
         fields = ['email', 'phone_number', 'username', 'first_name', 'last_name', 'gender']
     
 class FriendRequestSerializer(serializers.ModelSerializer):
+
+    receiver = serializers.CharField()
     class Meta:
         model = FriendRequest
         fields = ['id', 'receiver', 'status', 'created_at']
         read_only_fields = ['id', 'status', 'created_at']
+    
+    def validate_receiver(self, value):
+
+        
+        try:
+            receiver = User.objects.get(username=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("User with the given username does not exist.")
+        return receiver
 
     def create(self, validated_data):
         sender = self.context['request'].user
