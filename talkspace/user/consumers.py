@@ -1,3 +1,4 @@
+from urllib.parse import parse_qs
 import json
 import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
@@ -11,29 +12,22 @@ from rest_framework.exceptions import AuthenticationFailed
 
 # Setting up logging
 logger = logging.getLogger(__name__)
-
 class ChatRoomConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         print(f"Connecting to WebSocket with headers: {self.scope.get('headers', {})}")
-        token = None
-        for header in self.scope.get('headers', []):
-            if header[0] == b'authorization':
-                token = header[1].decode('utf-8')  # Decode the token value
-                print(f"Found token: {token}")
-                break
 
-        if token:
-            token = token.split(' ')[1]  # Extract token from 'Bearer <token>'
-            print(f"Extracted token: {token}")
-        else:
-            print("No token found in headers.")
+        # Extract token from query string
+        query_string = parse_qs(self.scope['query_string'].decode())
+        token = query_string.get('token', [None])[0]
+
+        if not token:
+            print("No token found in query parameters.")
             await self.close()
             return
 
-        # Validate and get the user from token
+        # Validate and get user from token
         try:
             AccessToken(token)  # Validate the token
-            print("Token is valid.")
             self.user = await database_sync_to_async(self.get_user_from_token)(token)
             if not self.user:
                 raise AuthenticationFailed("User not found.")
@@ -56,16 +50,27 @@ class ChatRoomConsumer(AsyncWebsocketConsumer):
             self.room_group_name,
             self.channel_name,
         )
+        
+        # Notify others that a user has joined
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'user_join',
+                'username': self.user.username,
+            }
+        )
+
         await self.accept()
 
     async def disconnect(self, close_code):
         if hasattr(self, 'user') and self.user and not isinstance(self.user, AnonymousUser):
-            # Remove the user from the chat room group
             print(f"Disconnecting {self.user.username} from room group {self.room_group_name}.")
+            # Remove the user from the chat room group
             await self.channel_layer.group_discard(
                 self.room_group_name,
                 self.channel_name,
             )
+
             # Notify group about user leaving
             print(f"User {self.user.username} has left the room.")
             await self.channel_layer.group_send(
