@@ -141,8 +141,11 @@ class ChatRoomListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        """Retrieve all chat rooms."""
-        chatrooms = ChatRoom.objects.filter(is_deleted=False)
+        """Retrieve chat rooms for the authenticated user."""
+        chatrooms = ChatRoom.objects.filter(
+            is_deleted=False,
+            users=request.user
+        )
         serializer = ChatRoomSerializer(chatrooms, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -201,8 +204,15 @@ class ChatRoomDetailView(APIView):
     def get(self, request, pk, *args, **kwargs):
         """Retrieve details of a specific chat room."""
         chatroom = self.get_object(pk)
-        serializer = ChatRoomSerializer(chatroom)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        messages = ChatMessage.objects.filter(room_id=chatroom).order_by('timestamp')
+
+        # Serialize the chat room and its messages
+        chatroom_serializer = ChatRoomSerializer(chatroom)
+        message_serializer = ChatMessageSerializer(messages, many=True)
+        return Response({
+            "chat_room": chatroom_serializer.data,
+            "messages": message_serializer.data
+        }, status=status.HTTP_200_OK)
 
     def put(self, request, pk, *args, **kwargs):
         """Update a specific chat room."""
