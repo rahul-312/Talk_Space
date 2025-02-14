@@ -52,13 +52,13 @@ class ChatRoomConsumer(AsyncWebsocketConsumer):
         )
         
         # Notify others that a user has joined
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                'type': 'user_join',
-                'username': self.user.username,
-            }
-        )
+        # await self.channel_layer.group_send(
+        #     self.room_group_name,
+        #     {
+        #         'type': 'user_join',
+        #         'username': self.user.username,
+        #     }
+        # )
 
         await self.accept()
 
@@ -72,16 +72,16 @@ class ChatRoomConsumer(AsyncWebsocketConsumer):
             )
 
             # Notify group about user leaving
-            print(f"User {self.user.username} has left the room.")
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    'type': 'user_leave',
-                    'username': self.user.username,
-                }
-            )
-        else:
-            print("No valid user or anonymous user trying to disconnect.")
+        #     print(f"User {self.user.username} has left the room.")
+        #     await self.channel_layer.group_send(
+        #         self.room_group_name,
+        #         {
+        #             'type': 'user_leave',
+        #             'username': self.user.username,
+        #         }
+        #     )
+        # else:
+        #     print("No valid user or anonymous user trying to disconnect.")
 
     async def receive(self, text_data):
         try:
