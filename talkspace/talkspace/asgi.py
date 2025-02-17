@@ -1,19 +1,13 @@
 import os
 from django.core.asgi import get_asgi_application
 from channels.routing import ProtocolTypeRouter, URLRouter
-from channels.auth import AuthMiddlewareStack
-from channels.layers import get_channel_layer
-import django
-from user.routing import websocket_urlpatterns
+import user.routing
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'talkspace.settings')
-django.setup()
 
 application = ProtocolTypeRouter({
     "http": get_asgi_application(),
-    "websocket": AuthMiddlewareStack(
-        URLRouter(
-            websocket_urlpatterns
-        )
+    "websocket": URLRouter(
+        user.routing.websocket_urlpatterns
     ),
 })

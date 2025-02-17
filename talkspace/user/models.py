@@ -83,28 +83,64 @@ class FriendRequest(models.Model):
         unique_together = ('sender', 'receiver')
 
 class ChatRoom(models.Model):
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255, unique=True, blank=True)
     users = models.ManyToManyField(User, related_name='chatrooms')
     is_deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return self.name
+        return self.name or "Unnamed Room"
+
+    def clean(self):
+        """
+        Optionally, enforce that if a room is used as a DM room (exactly two users), 
+        then it should have exactly two users.
+        """
+        if self.users.count() == 2:
+            # For a DM, we expect exactly two users. 
+            # Additional validation can be added here if needed.
+            pass
 
     def get_other_user(self, user):
-        """Helper function to get the other user in a two-user chat room."""
-        return self.users.exclude(id=user.id).first()
+        """
+        Returns the other user in a two-user chat room.
+        If the room doesn't have exactly two users, returns None.
+        """
+        if self.users.count() == 2:
+            return self.users.exclude(id=user.id).first()
+        return None
 
     def save(self, *args, **kwargs):
-        # Save the ChatRoom instance to get an ID before adding users
+        # Determine if the instance is new
         is_new = self._state.adding
-        if is_new:
-            super().save(*args, **kwargs)  # Save initially to get the id
-            if not self.name:
-                # Generate name for the chat room after saving (now that it has an ID)
-                user_ids = sorted(self.users.values_list('id', flat=True))
-                self.name = ' & '.join([str(user_id) for user_id in user_ids])  # Use IDs or usernames here
+        super().save(*args, **kwargs)  # Save first to generate an ID if new
+
+        # Auto-generate the name if it's empty and users have been attached.
+        if is_new and not self.name:
+            user_ids = list(self.users.values_list('id', flat=True))
+            if len(user_ids) == 2:
+                # For DM rooms, sort the IDs to ensure consistency in naming.
+                user_ids.sort()
+                self.name = f"{user_ids[0]}_{user_ids[1]}"
+            else:
+                # For group chats or if users are not yet set, use a different naming strategy.
+                self.name = f"room_{self.id}"
             super().save(*args, **kwargs)
+
+    @classmethod
+    def get_or_create_dm(cls, user1, user2):
+        """
+        Returns a DM ChatRoom for the two users.
+        If such a room exists, returns it; otherwise, creates a new one.
+        """
+        # Sort the user IDs for consistency.
+        user_ids = sorted([user1.id, user2.id])
+        room_name = f"{user_ids[0]}_{user_ids[1]}"
+        room, created = cls.objects.get_or_create(name=room_name)
+        if created:
+            room.users.set([user1, user2])
+        return room
+
 
 class ChatMessage(models.Model):
     room = models.ForeignKey(ChatRoom, related_name='messages', on_delete=models.CASCADE)
