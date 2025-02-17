@@ -137,6 +137,8 @@ class UserLogoutView(APIView):
 from .models import ChatRoom, ChatMessage
 from .serializers import ChatRoomSerializer, ChatMessageSerializer
 from django.shortcuts import get_object_or_404
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 class ChatRoomListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -150,20 +152,23 @@ class ChatRoomListCreateView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request, *args, **kwargs):
-        """Create or get an existing chat room."""
+        """
+        Create or get an existing chat room.
+        
+        If only one friend is provided, create/get a one-on-one DM room.
+        If more than one friend is provided, create a group chat room.
+        """
         other_user_ids = request.data.get('users', [])
 
-        # Ensure at least one friend's user ID is provided
-        if not other_user_ids or len(other_user_ids) == 0:
+        if not other_user_ids:
             return Response(
                 {"detail": "At least one user's ID is required to create a chat room."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Get the authenticated user
         authenticated_user = request.user
 
-        # Validate that all provided user IDs are friends of the authenticated user
+        # Validate that all provided user IDs are friends of the authenticated user.
         friends = authenticated_user.get_friends().filter(id__in=other_user_ids)
         if friends.count() != len(other_user_ids):
             return Response(
@@ -171,28 +176,41 @@ class ChatRoomListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Sort the users to ensure uniqueness in the chat room name (avoiding order differences)
-        user_ids = sorted([authenticated_user.id] + [friend.id for friend in friends])
-
-        # Check if a chat room with these users already exists
-        existing_room = ChatRoom.objects.filter(users__in=user_ids).distinct().annotate(
-            user_count=models.Count('users')
-        ).filter(user_count=len(user_ids)).first()
-
-        if existing_room:
-            # If a room exists, return the existing room's data
-            serializer = ChatRoomSerializer(existing_room)
+        if len(other_user_ids) == 1:
+            # One-on-one DM using the helper method in ChatRoom
+            friend = friends.first()
+            chatroom = ChatRoom.get_or_create_dm(authenticated_user, friend)
+            serializer = ChatRoomSerializer(chatroom)
             return Response(serializer.data, status=status.HTTP_200_OK)
+        else:
+            # Group chat creation
+            # Combine authenticated user and friends and sort their IDs for consistency.
+            user_ids = sorted([authenticated_user.id] + list(friends.values_list('id', flat=True)))
 
-        # Create the chat room if no existing room was found
-        chatroom = ChatRoom(name="")  # Empty name, will be set in save method
-        chatroom.save()  # Save first to get an ID
-        chatroom.users.add(authenticated_user, *friends)  # Add authenticated user and friends
-        chatroom.save()  # Save again to generate name after adding users
+            # Attempt to find an existing group chat that exactly has these users.
+            existing_room = None
+            candidate_rooms = ChatRoom.objects.filter(is_deleted=False)\
+                .annotate(user_count=Count('users'))\
+                .filter(user_count=len(user_ids))
+            for room in candidate_rooms:
+                room_user_ids = sorted(list(room.users.values_list('id', flat=True)))
+                if room_user_ids == user_ids:
+                    existing_room = room
+                    break
 
-        # Now that the name is generated, return the created chat room
-        serializer = ChatRoomSerializer(chatroom)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+            if existing_room:
+                serializer = ChatRoomSerializer(existing_room)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+
+            # Create a new group chat room.
+            chatroom = ChatRoom.objects.create()
+            chatroom.users.add(authenticated_user, *friends)
+            # Saving again in case the ChatRoom.save() method auto-generates the name.
+            chatroom.save()
+
+            serializer = ChatRoomSerializer(chatroom)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
 
 class ChatRoomDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -202,11 +220,10 @@ class ChatRoomDetailView(APIView):
         return get_object_or_404(ChatRoom, pk=pk, is_deleted=False)
 
     def get(self, request, pk, *args, **kwargs):
-        """Retrieve details of a specific chat room."""
+        """Retrieve details of a specific chat room along with its messages."""
         chatroom = self.get_object(pk)
-        messages = ChatMessage.objects.filter(room_id=chatroom).order_by('timestamp')
+        messages = ChatMessage.objects.filter(room=chatroom).order_by('timestamp')
 
-        # Serialize the chat room and its messages
         chatroom_serializer = ChatRoomSerializer(chatroom)
         message_serializer = ChatMessageSerializer(messages, many=True)
         return Response({
@@ -228,10 +245,12 @@ class ChatRoomDetailView(APIView):
         chatroom = self.get_object(pk)
         chatroom.is_deleted = True
         chatroom.save()
-        return Response({"detail": "Chat room deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
+        return Response(
+            {"detail": "Chat room deleted successfully."},
+            status=status.HTTP_204_NO_CONTENT
+        )
 
-from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
+
 class ChatMessageListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -241,12 +260,7 @@ class ChatMessageListCreateView(APIView):
         if not room_id:
             return Response({"error": "room_id is required."}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Ensure the room exists
-        try:
-            room = ChatRoom.objects.get(id=room_id)
-        except ChatRoom.DoesNotExist:
-            return Response({"error": "Chat room does not exist."}, status=status.HTTP_404_NOT_FOUND)
-        
+        room = get_object_or_404(ChatRoom, id=room_id, is_deleted=False)
         messages = ChatMessage.objects.filter(room=room).order_by('timestamp')
         serializer = ChatMessageSerializer(messages, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -257,27 +271,20 @@ class ChatMessageListCreateView(APIView):
         if not room_id:
             return Response({"error": "room_id is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Ensure the room exists
-        try:
-            room = ChatRoom.objects.get(id=room_id)
-        except ChatRoom.DoesNotExist:
-            return Response({"error": "Chat room does not exist."}, status=status.HTTP_404_NOT_FOUND)
+        room = get_object_or_404(ChatRoom, id=room_id, is_deleted=False)
 
-        # Ensure the user is part of the chat room
+        # Ensure the user is part of the chat room.
         if request.user not in room.users.all():
             return Response({"error": "User is not part of this chat room."}, status=status.HTTP_403_FORBIDDEN)
 
-        # Validate and save the message
-
         serializer = ChatMessageSerializer(data=request.data)
         if serializer.is_valid():
-            # Save the message
             message = serializer.save(user=request.user, room=room)
 
-            # Send the message to WebSocket clients in real-time
+            # Send the message to WebSocket clients in real time.
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
-                f"chat_{room_id}",  # The group name for the chat room
+                f"chat_{room_id}",  # Group name for the chat room.
                 {
                     "type": "chat_message",
                     "message": message.message,
