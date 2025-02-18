@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistrationView, UserLoginView, UserListView, UserSearchView, SendFriendRequestView, RespondToFriendRequestView, FriendsListView, UserLogoutView, ChatRoomListCreateView, ChatRoomDetailView, ChatMessageListCreateView ,PendingFriendRequestsView
+from .views import UserRegistrationView, UserLoginView, UserListView, UserSearchView, SendFriendRequestView, RespondToFriendRequestView, FriendsListView, UserLogoutView, ChatRoomListCreateView, ChatRoomDetailView, ChatMessageListCreateView ,PendingFriendRequestsView, OfferView, AnswerView, GetAnswerView, GetOfferView, IceCandidateView
 
 
 urlpatterns = [
@@ -15,4 +15,10 @@ urlpatterns = [
     path('chatrooms/', ChatRoomListCreateView.as_view(), name='chatroom-list-create'),
     path('chatrooms/<int:pk>/', ChatRoomDetailView.as_view(), name='chatroom-detail'),
     path('messages/', ChatMessageListCreateView.as_view(), name='chatmessage-list-create'),
+    path('offer/', OfferView.as_view(), name='offer'),
+    path('answer/', AnswerView.as_view(), name='answer'),
+    path('get_offer/<str:peer_id>/', GetOfferView.as_view(), name='get_offer'),
+    path('get_answer/<str:peer_id>/', GetAnswerView.as_view(), name='get_answer'),
+    path('ice_candidate/', IceCandidateView.as_view(), name='ice_candidate'),
+    path('ice_candidate/<str:peer_id>/', IceCandidateView.as_view(), name='get_ice_candidates'),
 ]

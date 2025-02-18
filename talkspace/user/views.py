@@ -295,3 +295,51 @@ class ChatMessageListCreateView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+PEER_CONNECTIONS = {}
+ICE_CANDIDATES = {}
+
+class OfferView(APIView):
+    def post(self, request):
+        offer_sdp = request.data.get('sdp')
+        peer_id = request.data.get('peer_id')
+        PEER_CONNECTIONS[peer_id] = {'offer': offer_sdp, 'answer': None}
+        ICE_CANDIDATES[peer_id] = []
+        return Response({'status': 'offer received'}, status=status.HTTP_201_CREATED)
+
+class AnswerView(APIView):
+    def post(self, request):
+        answer_sdp = request.data.get('sdp')
+        peer_id = request.data.get('peer_id')
+        if peer_id in PEER_CONNECTIONS:
+            PEER_CONNECTIONS[peer_id]['answer'] = answer_sdp
+            return Response({'status': 'answer received'}, status=status.HTTP_201_CREATED)
+        return Response({'error': 'peer_id not found'}, status=status.HTTP_404_NOT_FOUND)
+
+class GetOfferView(APIView):
+    def get(self, request, peer_id):
+        offer = PEER_CONNECTIONS.get(peer_id, {}).get('offer')
+        if offer:
+            return Response({'sdp': offer}, status=status.HTTP_200_OK)
+        return Response({'error': 'offer not found'}, status=status.HTTP_404_NOT_FOUND)
+
+class GetAnswerView(APIView):
+    def get(self, request, peer_id):
+        answer = PEER_CONNECTIONS.get(peer_id, {}).get('answer')
+        if answer:
+            return Response({'sdp': answer}, status=status.HTTP_200_OK)
+        return Response({'error': 'answer not found'}, status=status.HTTP_404_NOT_FOUND)
+
+class IceCandidateView(APIView):
+    def post(self, request):
+        peer_id = request.data.get('peer_id')
+        candidate = request.data.get('candidate')
+        if peer_id in ICE_CANDIDATES:
+            ICE_CANDIDATES[peer_id].append(candidate)
+            return Response({'status': 'candidate received'}, status=status.HTTP_201_CREATED)
+        return Response({'error': 'peer_id not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def get(self, request, peer_id):
+        candidates = ICE_CANDIDATES.get(peer_id, [])
+        return Response({'candidates': candidates}, status=status.HTTP_200_OK)
