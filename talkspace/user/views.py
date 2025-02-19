@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import models
+from django.db.models import Count
 
 class UserRegistrationView(APIView):
     permission_classes = [AllowAny]
@@ -296,37 +297,68 @@ class ChatMessageListCreateView(APIView):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-
 PEER_CONNECTIONS = {}
 ICE_CANDIDATES = {}
 
 class OfferView(APIView):
     def post(self, request):
         offer_sdp = request.data.get('sdp')
-        peer_id = request.data.get('peer_id')
-        PEER_CONNECTIONS[peer_id] = {'offer': offer_sdp, 'answer': None}
-        ICE_CANDIDATES[peer_id] = []
+        caller = request.data.get('peer_id')  # e.g., "peer1"
+        receiver = request.data.get('remote_peer_id')  # e.g., "peer4"
+        
+        # Store the offer under the receiver's id with the caller info.
+        PEER_CONNECTIONS[receiver] = {
+            'offer': offer_sdp,
+            'answer': None,
+            'caller': caller
+        }
+        ICE_CANDIDATES[receiver] = []
+        print("Offer created. Current PEER_CONNECTIONS:", PEER_CONNECTIONS)  # Debug log
         return Response({'status': 'offer received'}, status=status.HTTP_201_CREATED)
 
 class AnswerView(APIView):
     def post(self, request):
         answer_sdp = request.data.get('sdp')
-        peer_id = request.data.get('peer_id')
-        if peer_id in PEER_CONNECTIONS:
-            PEER_CONNECTIONS[peer_id]['answer'] = answer_sdp
+        caller_peer = request.data.get('caller_peer_id')
+        print("Answer SDP:", answer_sdp)
+        print("Caller Peer:", caller_peer)
+        print("Current PEER_CONNECTIONS:", PEER_CONNECTIONS) 
+        if not caller_peer:
+            return Response({'error': 'caller_peer_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if caller_peer in PEER_CONNECTIONS:
+            PEER_CONNECTIONS[caller_peer]['answer'] = answer_sdp
             return Response({'status': 'answer received'}, status=status.HTTP_201_CREATED)
-        return Response({'error': 'peer_id not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'error': 'caller peer_id not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class SetOfferView(APIView):
+    def post(self, request, peer_id):
+        offer = request.data.get('sdp')
+        caller = request.data.get('caller')
+        PEER_CONNECTIONS[peer_id] = {'offer': offer, 'caller': caller}
+        return Response({'message': 'Offer set successfully'}, status=status.HTTP_200_OK)
 
 class GetOfferView(APIView):
     def get(self, request, peer_id):
-        offer = PEER_CONNECTIONS.get(peer_id, {}).get('offer')
+        connection = PEER_CONNECTIONS.get(peer_id, {})
+        offer = connection.get('offer')
+        caller = connection.get('caller')
         if offer:
-            return Response({'sdp': offer}, status=status.HTTP_200_OK)
+            return Response({'sdp': offer, 'caller': caller}, status=status.HTTP_200_OK)
         return Response({'error': 'offer not found'}, status=status.HTTP_404_NOT_FOUND)
+
+class SetAnswerView(APIView):
+    def post(self, request, peer_id):
+        answer = request.data.get('sdp')
+        if peer_id in PEER_CONNECTIONS:
+            PEER_CONNECTIONS[peer_id]['answer'] = answer
+            return Response({'message': 'Answer set successfully'}, status=status.HTTP_200_OK)
+        return Response({'error': 'Offer not found'}, status=status.HTTP_404_NOT_FOUND)
 
 class GetAnswerView(APIView):
     def get(self, request, peer_id):
         answer = PEER_CONNECTIONS.get(peer_id, {}).get('answer')
+        print("Current PEER_CONNECTIONS:", PEER_CONNECTIONS)
         if answer:
             return Response({'sdp': answer}, status=status.HTTP_200_OK)
         return Response({'error': 'answer not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -335,11 +367,12 @@ class IceCandidateView(APIView):
     def post(self, request):
         peer_id = request.data.get('peer_id')
         candidate = request.data.get('candidate')
-        if peer_id in ICE_CANDIDATES:
-            ICE_CANDIDATES[peer_id].append(candidate)
-            return Response({'status': 'candidate received'}, status=status.HTTP_201_CREATED)
-        return Response({'error': 'peer_id not found'}, status=status.HTTP_404_NOT_FOUND)
+        if peer_id not in ICE_CANDIDATES:
+            ICE_CANDIDATES[peer_id] = []
+        ICE_CANDIDATES[peer_id].append(candidate)
+        return Response({'status': 'candidate received'}, status=status.HTTP_201_CREATED)
 
     def get(self, request, peer_id):
         candidates = ICE_CANDIDATES.get(peer_id, [])
+        print("Current ICE Candidates:", ICE_CANDIDATES)
         return Response({'candidates': candidates}, status=status.HTTP_200_OK)
