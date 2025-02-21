@@ -1,9 +1,13 @@
 import json
 import jwt
+import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
 from user.models import User  # Import your custom User model
 from django.conf import settings
 from channels.db import database_sync_to_async
+from urllib.parse import parse_qs
+
+logger = logging.getLogger(__name__)
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -14,32 +18,35 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.room_id = self.scope["url_route"]["kwargs"]["room_id"]
         self.group_name = f"chat_{self.room_id}"
 
-        # Get the token from the URL query parameter
-        token = self.scope['query_string'].decode().split('=')[1]  # Extract token from 'token=your_token'
+        # Extract the token from the URL query parameters using parse_qs
+        query_params = parse_qs(self.scope['query_string'].decode())
+        token = query_params.get('token', [None])[0]
 
-        try:
-            # Decode the token to get user information
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])  # Adjust your algorithm if needed
-            user_id = payload.get('user_id')
+        # Attempt to decode the token and fetch the user
+        if token:
+            try:
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+                user_id = payload.get('user_id')
 
-            # If user_id exists, fetch the user from the database
-            if user_id:
-                self.user = await database_sync_to_async(User.objects.get)(id=user_id)  # Use your custom User model
-                self.username = self.user.username
-            else:
+                if user_id:
+                    self.user = await database_sync_to_async(User.objects.get)(id=user_id)
+                    self.username = self.user.username
+                    logger.info(f"User {self.username} connected.")
+                else:
+                    self.username = 'anonymous'
+                    logger.warning("Token did not contain user_id; setting username to anonymous.")
+            except jwt.ExpiredSignatureError:
                 self.username = 'anonymous'
-
-        except jwt.ExpiredSignatureError:
+                logger.warning("Token has expired; setting username to anonymous.")
+            except jwt.InvalidTokenError:
+                self.username = 'anonymous'
+                logger.warning("Invalid token provided; setting username to anonymous.")
+        else:
             self.username = 'anonymous'
-        except jwt.InvalidTokenError:
-            self.username = 'anonymous'
+            logger.warning("No token provided in query parameters; setting username to anonymous.")
 
         # Add the channel to the group for the room
-        await self.channel_layer.group_add(
-            self.group_name,
-            self.channel_name
-        )
-
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
         # Accept the WebSocket connection
         await self.accept()
 
@@ -48,10 +55,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         Called when the WebSocket connection is closed.
         Remove the channel from the group.
         """
-        await self.channel_layer.group_discard(
-            self.group_name,
-            self.channel_name
-        )
+        await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def receive(self, text_data):
         """
@@ -60,15 +64,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
         """
         data = json.loads(text_data)
         message = data.get("message")
-
+        
         # Use the stored username from the connect method
-        username = self.username  # No need to get it from the message anymore
+        username = self.username
 
         # Broadcast the message to the group
         await self.channel_layer.group_send(
             self.group_name,
             {
-                "type": "chat_message",  # This calls the chat_message method below
+                "type": "chat_message",
                 "message": message,
                 "username": username,
             }
@@ -82,7 +86,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         message = event["message"]
         username = event["username"]
 
-        # Send the message to WebSocket client
+        # Send the message to the WebSocket client
         await self.send(text_data=json.dumps({
             "message": message,
             "username": username,
