@@ -6,10 +6,20 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
 
     class Meta:
         model = User
-        fields = ['email', 'phone_number', 'username', 'first_name', 'last_name', 'gender', 'password']
+        fields = [
+            'email', 
+            'phone_number', 
+            'username', 
+            'first_name', 
+            'last_name', 
+            'gender', 
+            'password', 
+            'confirm_password'
+        ]
 
     def validate_phone_number(self, value):
         if value and not re.match(r'^\+\d{1,4}\d{10}$', value):
@@ -22,19 +32,28 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return value
 
     def validate_username(self, value):
-        if value:
-            if User.objects.filter(username=value).exists():
-                raise ValidationError("Username is already taken.")
+        if value and User.objects.filter(username=value).exists():
+            raise ValidationError("Username is already taken.")
         return value
 
     def validate_password(self, value):
-        if not re.match(r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*()_+={}\[\]:;"\'<>,.?/\\|`~]).{8,}$', value):
+        if not re.match(
+            r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*()_+={}\[\]:;"\'<>,.?/\\|`~]).{8,}$', value
+        ):
             raise ValidationError(
                 "Password must be at least 8 characters long, contain at least one letter, one number, and one special character."
             )
         return value
 
+    def validate(self, data):
+        # Check if password and confirm_password match
+        if data.get('password') != data.get('confirm_password'):
+            raise ValidationError({"confirm_password": "Passwords do not match."})
+        return data
+
     def create(self, validated_data):
+        # Remove confirm_password since it's not needed for user creation
+        validated_data.pop('confirm_password', None)
         user = User.objects.create_user(
             email=validated_data.get('email'),
             phone_number=validated_data.get('phone_number'),
@@ -51,12 +70,19 @@ class UserLoginSerializer(serializers.Serializer):
     phone_number = serializers.CharField(max_length=15, required=False)
     username = serializers.CharField(max_length=150, required=False)
     password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
 
     def validate(self, data):
+        # Ensure at least one identifier is provided.
         if not data.get('email') and not data.get('phone_number') and not data.get('username'):
             raise serializers.ValidationError("Email, phone number, or username is required.")
 
+        # Validate that password and confirm_password match.
+        if data.get('password') != data.get('confirm_password'):
+            raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
+        
         user = None
+        # Prioritize email if provided, then phone number, then username.
         if data.get('email'):
             user = User.objects.filter(email=data['email']).first()
         elif data.get('phone_number'):
@@ -64,18 +90,25 @@ class UserLoginSerializer(serializers.Serializer):
         elif data.get('username'):
             user = User.objects.filter(username=data['username']).first()
 
-        if user is None or not user.check_password(data['password']):
-            raise serializers.ValidationError("Invalid credentials.")
+        if user is None:
+            raise serializers.ValidationError("No user found with the provided credentials.")
 
+        if not user.check_password(data['password']):
+            raise serializers.ValidationError("Invalid password.")
+
+        # Return the actual user object instead of a dict.
         return user
 
     def get_tokens_for_user(self, user):
+        """
+        Generates refresh and access tokens for the authenticated user.
+        """
         refresh = RefreshToken.for_user(user)
         return {
             'access': str(refresh.access_token),
             'refresh': str(refresh)
         }
-    
+
 class UserListSerializer(serializers.ModelSerializer):
     class Meta:
         model = User

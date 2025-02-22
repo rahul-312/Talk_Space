@@ -31,7 +31,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 if user_id:
                     self.user = await database_sync_to_async(User.objects.get)(id=user_id)
                     self.username = self.user.username
-                    logger.info(f"User {self.username} connected.")
+                    logger.info(f"User {self.username} connected to room {self.room_id}.")
                 else:
                     self.username = 'anonymous'
                     logger.warning("Token did not contain user_id; setting username to anonymous.")
