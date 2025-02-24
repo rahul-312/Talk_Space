@@ -1,7 +1,7 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer, FriendRequestSerializer
+from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer, FriendRequestSerializer,FriendSerializer
 from .models import User, FriendRequest
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q
@@ -38,16 +38,18 @@ class UserListView(APIView):
 class UserSearchView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, username):
-        try:
-            user = User.objects.get(username=username)
-            serializer = UserListSerializer(user)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "User not found."},
-                status=status.HTTP_404_NOT_FOUND
-            )
+    def get(self, request, query):
+        users = list(User.objects.filter(
+            Q(username__icontains=query) |
+            Q(first_name__icontains=query) |
+            Q(last_name__icontains=query)
+        ))  # Convert QuerySet to list to avoid AttributeError
+
+        if not users:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = UserListSerializer(users, many=True)  # Ensure many=True
+        return Response({"users": serializer.data}, status=status.HTTP_200_OK)
 
 
 class SendFriendRequestView(APIView):
@@ -107,19 +109,27 @@ class FriendsListView(APIView):
 
     def get(self, request):
         user = request.user
-        friends = FriendRequest.objects.filter(
-            Q(sender=user) | Q(receiver=user),
-            status='accepted'
-        )
-        friends_list = [
-            {
-                "id": friend.sender.id if friend.sender != user else friend.receiver.id,
-                "username": friend.sender.username if friend.sender != user else friend.receiver.username
-            }
-            for friend in friends
-        ]
+        search_query = request.query_params.get("search", "").strip()
 
-        return Response({"friends": friends_list}, status=status.HTTP_200_OK)
+        # Base queryset of accepted friend requests
+        friends_qs = FriendRequest.objects.filter(
+            Q(sender=user) | Q(receiver=user),
+            status="accepted"
+        ).select_related("sender", "receiver")
+
+        if search_query:
+            # Build a query to filter friend requests by user's attributes.
+            friends_qs = friends_qs.filter(
+                Q(sender__first_name__icontains=search_query) |
+                Q(receiver__username__icontains=search_query) |
+                Q(receiver__first_name__icontains=search_query)
+            )
+
+        # Extract the friend object: If the sender is the current user, take the receiver; otherwise, sender.
+        friends = [f.sender if f.sender != user else f.receiver for f in friends_qs]
+
+        serializer = FriendSerializer(friends, many=True)
+        return Response({"friends": serializer.data}, status=200)
 
 class UserLogoutView(APIView):
     permission_classes = [IsAuthenticated]
