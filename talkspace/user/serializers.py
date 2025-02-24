@@ -3,6 +3,7 @@ from rest_framework import serializers
 from django.core.exceptions import ValidationError
 from .models import User, FriendRequest, ChatMessage, ChatRoom
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.db.models import Q
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -70,19 +71,14 @@ class UserLoginSerializer(serializers.Serializer):
     phone_number = serializers.CharField(max_length=15, required=False)
     username = serializers.CharField(max_length=150, required=False)
     password = serializers.CharField(write_only=True)
-    confirm_password = serializers.CharField(write_only=True)
 
     def validate(self, data):
         # Ensure at least one identifier is provided.
         if not data.get('email') and not data.get('phone_number') and not data.get('username'):
             raise serializers.ValidationError("Email, phone number, or username is required.")
 
-        # Validate that password and confirm_password match.
-        if data.get('password') != data.get('confirm_password'):
-            raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
-        
+        # Identify the user
         user = None
-        # Prioritize email if provided, then phone number, then username.
         if data.get('email'):
             user = User.objects.filter(email=data['email']).first()
         elif data.get('phone_number'):
@@ -93,10 +89,11 @@ class UserLoginSerializer(serializers.Serializer):
         if user is None:
             raise serializers.ValidationError("No user found with the provided credentials.")
 
+        # Check if password is correct
         if not user.check_password(data['password']):
             raise serializers.ValidationError("Invalid password.")
 
-        # Return the actual user object instead of a dict.
+        # Return user object if authentication is successful
         return user
 
     def get_tokens_for_user(self, user):
@@ -115,36 +112,42 @@ class UserListSerializer(serializers.ModelSerializer):
         fields = ['email', 'phone_number', 'username', 'first_name', 'last_name', 'gender']
     
 class FriendRequestSerializer(serializers.ModelSerializer):
-
     receiver = serializers.CharField()
+
     class Meta:
         model = FriendRequest
         fields = ['id', 'receiver', 'status', 'created_at']
         read_only_fields = ['id', 'status', 'created_at']
-    
+
     def validate_receiver(self, value):
-
-        
         try:
-            receiver = User.objects.get(username=value)
+            return User.objects.get(username=value)
         except User.DoesNotExist:
-            raise serializers.ValidationError("User with the given username does not exist.")
-        return receiver
+            raise serializers.ValidationError("User with this username does not exist.")
 
-    def create(self, validated_data):
+    def validate(self, data):
         sender = self.context['request'].user
-        receiver = validated_data['receiver']
+        receiver = data['receiver']
 
         if sender == receiver:
             raise serializers.ValidationError("You cannot send a friend request to yourself.")
 
-        if FriendRequest.objects.filter(sender=sender, receiver=receiver).exists():
-            raise serializers.ValidationError("Friend request already sent.")
+        # Single query to check existing requests or friendship
+        if FriendRequest.objects.filter(
+            Q(sender=sender, receiver=receiver) |
+            Q(sender=receiver, receiver=sender, status='accepted')
+        ).exists():
+            raise serializers.ValidationError(
+                "Friend request already sent or you are already friends."
+            )
 
-        if FriendRequest.objects.filter(sender=receiver, receiver=sender, status='accepted').exists():
-            raise serializers.ValidationError("You are already friends.")
+        return data
 
-        return FriendRequest.objects.create(sender=sender, receiver=receiver)
+    def create(self, validated_data):
+        return FriendRequest.objects.create(
+            sender=self.context['request'].user,
+            receiver=validated_data['receiver']
+        )
     
 class ChatRoomSerializer(serializers.ModelSerializer):
     class Meta:
@@ -158,3 +161,9 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         model = ChatMessage
         fields = ['id', 'room', 'user', 'message', 'timestamp']
         read_only_fields = ['id', 'room', 'user', 'timestamp']
+
+    
+class FriendSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'email']
