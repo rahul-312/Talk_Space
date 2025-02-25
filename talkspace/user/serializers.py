@@ -132,14 +132,16 @@ class FriendRequestSerializer(serializers.ModelSerializer):
         if sender == receiver:
             raise serializers.ValidationError("You cannot send a friend request to yourself.")
 
-        # Single query to check existing requests or friendship
+        # Check if a pending friend request already exists
+        if FriendRequest.objects.filter(sender=sender, receiver=receiver, status='pending').exists():
+            raise serializers.ValidationError("Friend request already sent and is pending.")
+
+        # Check if you are already friends (i.e., an accepted friend request exists)
         if FriendRequest.objects.filter(
-            Q(sender=sender, receiver=receiver) |
+            Q(sender=sender, receiver=receiver, status='accepted') |
             Q(sender=receiver, receiver=sender, status='accepted')
         ).exists():
-            raise serializers.ValidationError(
-                "Friend request already sent or you are already friends."
-            )
+            raise serializers.ValidationError("You are already friends with this user.")
 
         return data
 
