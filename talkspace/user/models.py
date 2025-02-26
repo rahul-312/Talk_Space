@@ -87,71 +87,44 @@ class ChatRoom(models.Model):
     users = models.ManyToManyField(User, related_name='chatrooms')
     is_deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    is_group_chat = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name or "Unnamed Room"
 
-    def clean(self):
-        """
-        Optionally, enforce that if a room is used as a DM room (exactly two users), 
-        then it should have exactly two users.
-        """
-        if self.users.count() == 2:
-            # For a DM, we expect exactly two users. 
-            # Additional validation can be added here if needed.
-            pass
-
-    def get_other_user(self, user):
-        """
-        Returns the other user in a two-user chat room.
-        If the room doesn't have exactly two users, returns None.
-        """
-        if self.users.count() == 2:
-            return self.users.exclude(id=user.id).first()
-        return None
-
     def save(self, *args, **kwargs):
-        # Determine if the instance is new
         is_new = self._state.adding
-        super().save(*args, **kwargs)  # Save first to generate an ID if new
-
-        # Auto-generate the name if it's empty and users have been attached.
+        super().save(*args, **kwargs)
         if is_new and not self.name:
             user_ids = list(self.users.values_list('id', flat=True))
-            if len(user_ids) == 2:
-                # For DM rooms, sort the IDs to ensure consistency in naming.
+            if len(user_ids) == 2 and not self.is_group_chat:
                 user_ids.sort()
-                self.name = f"{user_ids[0]}_{user_ids[1]}"
+                self.name = f"dm_{user_ids[0]}_{user_ids[1]}"
             else:
-                # For group chats or if users are not yet set, use a different naming strategy.
                 self.name = f"room_{self.id}"
             super().save(*args, **kwargs)
 
     @classmethod
     def get_or_create_dm(cls, user1, user2):
-        """
-        Returns a DM ChatRoom for the two users.
-        If such a room exists, returns it; otherwise, creates a new one.
-        """
-        # Sort the user IDs for consistency.
         user_ids = sorted([user1.id, user2.id])
-        room_name = f"{user_ids[0]}_{user_ids[1]}"
-        room, created = cls.objects.get_or_create(name=room_name)
+        room_name = f"dm_{user_ids[0]}_{user_ids[1]}"
+        room, created = cls.objects.get_or_create(
+            name=room_name,
+            defaults={'is_group_chat': False}
+        )
         if created:
             room.users.set([user1, user2])
         return room
-
 
 class ChatMessage(models.Model):
     room = models.ForeignKey(ChatRoom, related_name='messages', on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     message = models.TextField()
     timestamp = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"Message by {self.user} in {self.room.name} at {self.timestamp}"
+        return f"Message by {self.user} in {self.room.name}"
 
     class Meta:
-        verbose_name = "Chat Message"
-        verbose_name_plural = "Chat Messages"
-        ordering = ['-timestamp']
+        ordering = ['timestamp']

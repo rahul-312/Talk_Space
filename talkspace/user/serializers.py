@@ -132,14 +132,16 @@ class FriendRequestSerializer(serializers.ModelSerializer):
         if sender == receiver:
             raise serializers.ValidationError("You cannot send a friend request to yourself.")
 
-        # Single query to check existing requests or friendship
+        # Check if a pending friend request already exists
+        if FriendRequest.objects.filter(sender=sender, receiver=receiver, status='pending').exists():
+            raise serializers.ValidationError("Friend request already sent and is pending.")
+
+        # Check if you are already friends (i.e., an accepted friend request exists)
         if FriendRequest.objects.filter(
-            Q(sender=sender, receiver=receiver) |
+            Q(sender=sender, receiver=receiver, status='accepted') |
             Q(sender=receiver, receiver=sender, status='accepted')
         ).exists():
-            raise serializers.ValidationError(
-                "Friend request already sent or you are already friends."
-            )
+            raise serializers.ValidationError("You are already friends with this user.")
 
         return data
 
@@ -152,15 +154,21 @@ class FriendRequestSerializer(serializers.ModelSerializer):
 class ChatRoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatRoom
-        fields = ['id', 'name', 'users', 'created_at']
-        read_only_fields = ['created_at']
-
+        fields = ['id', 'name', 'users', 'is_group_chat', 'created_at']
 
 class ChatMessageSerializer(serializers.ModelSerializer):
+    first_name = serializers.SerializerMethodField()
+    last_name = serializers.SerializerMethodField()
+
     class Meta:
         model = ChatMessage
-        fields = ['id', 'room', 'user', 'message', 'timestamp']
-        read_only_fields = ['id', 'room', 'user', 'timestamp']
+        fields = ['id', 'room', 'user', 'message', 'timestamp', 'is_read', 'first_name', 'last_name']
+
+    def get_first_name(self, obj):
+        return obj.user.first_name
+
+    def get_last_name(self, obj):
+        return obj.user.last_name
 
     
 class FriendSerializer(serializers.ModelSerializer):

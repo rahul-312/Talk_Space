@@ -1,93 +1,70 @@
 import json
-import jwt
-import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
-from user.models import User  # Import your custom User model
-from django.conf import settings
 from channels.db import database_sync_to_async
-from urllib.parse import parse_qs
-
-logger = logging.getLogger(__name__)
+from .models import ChatRoom, ChatMessage
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        """
-        Called when the WebSocket connection is established.
-        The room ID is passed in the URL route kwargs.
-        """
-        self.room_id = self.scope["url_route"]["kwargs"]["room_id"]
-        self.group_name = f"chat_{self.room_id}"
+        self.room_id = self.scope['url_route']['kwargs']['room_id']
+        self.room_group_name = f'chat_{self.room_id}'
 
-        # Extract the token from the URL query parameters using parse_qs
-        query_params = parse_qs(self.scope['query_string'].decode())
-        token = query_params.get('token', [None])[0]
-
-        # Attempt to decode the token and fetch the user
-        if token:
-            try:
-                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
-                user_id = payload.get('user_id')
-
-                if user_id:
-                    self.user = await database_sync_to_async(User.objects.get)(id=user_id)
-                    self.username = self.user.username
-                    logger.info(f"User {self.username} connected to room {self.room_id}.")
-                else:
-                    self.username = 'anonymous'
-                    logger.warning("Token did not contain user_id; setting username to anonymous.")
-            except jwt.ExpiredSignatureError:
-                self.username = 'anonymous'
-                logger.warning("Token has expired; setting username to anonymous.")
-            except jwt.InvalidTokenError:
-                self.username = 'anonymous'
-                logger.warning("Invalid token provided; setting username to anonymous.")
-        else:
-            self.username = 'anonymous'
-            logger.warning("No token provided in query parameters; setting username to anonymous.")
-
-        # Add the channel to the group for the room
-        await self.channel_layer.group_add(self.group_name, self.channel_name)
-        # Accept the WebSocket connection
+        await self.channel_layer.group_add(
+            self.room_group_name,
+            self.channel_name
+        )
         await self.accept()
+        print(f"WebSocket connected for room: {self.room_id}")
 
     async def disconnect(self, close_code):
-        """
-        Called when the WebSocket connection is closed.
-        Remove the channel from the group.
-        """
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        await self.channel_layer.group_discard(
+            self.room_group_name,
+            self.channel_name
+        )
+        print(f"WebSocket disconnected for room: {self.room_id}, code: {close_code}")
 
     async def receive(self, text_data):
-        """
-        Called when a message is received from the WebSocket.
-        Broadcasts the message to the room group.
-        """
-        data = json.loads(text_data)
-        message = data.get("message")
-        
-        # Use the stored username from the connect method
-        username = self.username
+        text_data_json = json.loads(text_data)
+        message = text_data_json['message']
+        user = self.scope['user']
 
-        # Broadcast the message to the group
-        await self.channel_layer.group_send(
-            self.group_name,
-            {
-                "type": "chat_message",
-                "message": message,
-                "username": username,
-            }
-        )
+        msg = await self.create_message(user, message)
+
+        event = {
+            'type': 'chat_message',
+            'message': message,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'user': user.id,  # Changed to 'user' for consistency with serializer
+            'timestamp': str(msg.timestamp),
+        }
+        print(f"Sending event from receive: {event}")
+        await self.channel_layer.group_send(self.room_group_name, event)
 
     async def chat_message(self, event):
-        """
-        Called by the channel layer when a message is sent to the group.
-        Sends the message to the WebSocket client.
-        """
-        message = event["message"]
-        username = event["username"]
+        print(f"Received event in chat_message: {event}")
+        try:
+            await self.send(text_data=json.dumps({
+                'message': event.get('message', ''),  # Graceful fallback
+                'first_name': event.get('first_name', 'Unknown'),
+                'last_name': event.get('last_name', ''),
+                'user': event.get('user', None),  # Changed to 'user'
+                'timestamp': event.get('timestamp', ''),
+            }))
+        except Exception as e:
+            print(f"Error in chat_message: {e}, event: {event}")
+            await self.send(text_data=json.dumps({
+                'message': 'Error processing message',
+                'first_name': 'System',
+                'last_name': '',
+                'user': None,
+                'timestamp': str(datetime.now()),
+            }))
 
-        # Send the message to the WebSocket client
-        await self.send(text_data=json.dumps({
-            "message": message,
-            "username": username,
-        }))
+    @database_sync_to_async
+    def create_message(self, user, message):
+        room = ChatRoom.objects.get(id=self.room_id)
+        return ChatMessage.objects.create(
+            room=room,
+            user=user,
+            message=message
+        )
