@@ -154,15 +154,21 @@ class FriendRequestSerializer(serializers.ModelSerializer):
 class ChatRoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatRoom
-        fields = ['id', 'name', 'users', 'created_at']
-        read_only_fields = ['created_at']
-
+        fields = ['id', 'name', 'users', 'is_group_chat', 'created_at']
 
 class ChatMessageSerializer(serializers.ModelSerializer):
+    first_name = serializers.SerializerMethodField()
+    last_name = serializers.SerializerMethodField()
+
     class Meta:
         model = ChatMessage
-        fields = ['id', 'room', 'user', 'message', 'timestamp']
-        read_only_fields = ['id', 'room', 'user', 'timestamp']
+        fields = ['id', 'room', 'user', 'message', 'timestamp', 'is_read', 'first_name', 'last_name']
+
+    def get_first_name(self, obj):
+        return obj.user.first_name
+
+    def get_last_name(self, obj):
+        return obj.user.last_name
 
     
 class FriendSerializer(serializers.ModelSerializer):
