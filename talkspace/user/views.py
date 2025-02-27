@@ -166,6 +166,7 @@ class ChatRoomListCreateView(APIView):
     def post(self, request, *args, **kwargs):
         """Create or get a chat room (DM or group based on number of users)."""
         other_user_ids = request.data.get("users", [])
+        group_name = request.data.get("name", "").strip()
 
         if not other_user_ids:
             return Response(
@@ -189,8 +190,15 @@ class ChatRoomListCreateView(APIView):
             serializer = ChatRoomSerializer(chatroom)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        # **GROUP CHAT CREATION**
-        with transaction.atomic():  # Ensures no race conditions
+        # ---- GROUP CHAT CREATION ----
+        # Group chat MUST have a name
+        if not group_name:
+            return Response(
+                {"detail": "Group name is required for group chats."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
             existing_room = None
             candidate_rooms = ChatRoom.objects.filter(is_deleted=False)\
                 .annotate(user_count=Count("users"))\
@@ -206,9 +214,12 @@ class ChatRoomListCreateView(APIView):
                 serializer = ChatRoomSerializer(existing_room)
                 return Response(serializer.data, status=status.HTTP_200_OK)
 
-            # Save ChatRoom **before** adding users
-            chatroom = ChatRoom.objects.create(is_group_chat=True)
-            chatroom.users.set([request.user] + list(friends))  # Use `.set()` instead of `.add()`
+            # Create the group chat with a proper name
+            chatroom = ChatRoom.objects.create(
+                is_group_chat=True,
+                name=group_name
+            )
+            chatroom.users.set([request.user] + list(friends))
             chatroom.save()
 
         serializer = ChatRoomSerializer(chatroom)

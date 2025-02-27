@@ -152,6 +152,7 @@ class FriendRequestSerializer(serializers.ModelSerializer):
         )
     
 class ChatRoomSerializer(serializers.ModelSerializer):
+    users = UserListSerializer(many=True)
     class Meta:
         model = ChatRoom
         fields = ['id', 'name', 'users', 'is_group_chat', 'created_at']
