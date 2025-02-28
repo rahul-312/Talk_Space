@@ -155,13 +155,24 @@ class ChatRoomListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        """Retrieve chat rooms for the authenticated user."""
+        """Retrieve chat rooms for the authenticated user with other users."""
         chatrooms = ChatRoom.objects.filter(
             is_deleted=False,
             users=request.user
-        )
-        serializer = ChatRoomSerializer(chatrooms, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        ).prefetch_related("users")  # Prefetch users to optimize queries
+
+        chatroom_data = []
+        for chatroom in chatrooms:
+            # Get other users in the chat excluding the authenticated user
+            other_users = chatroom.users.exclude(id=request.user.id)
+            other_users_data = UserListSerializer(other_users, many=True).data  # Serialize other users
+            
+            chatroom_info = ChatRoomSerializer(chatroom).data
+            chatroom_info["other_users"] = other_users_data  # Add other users to response
+            
+            chatroom_data.append(chatroom_info)
+
+        return Response(chatroom_data, status=status.HTTP_200_OK)
 
     def post(self, request, *args, **kwargs):
         """Create or get a chat room (DM or group based on number of users)."""
@@ -187,11 +198,13 @@ class ChatRoomListCreateView(APIView):
             # If only one user, create a DM
             friend = friends.first()
             chatroom = ChatRoom.get_or_create_dm(request.user, friend)
+            # Ensure users are set if not done in get_or_create_dm
+            if not chatroom.users.exists():
+                chatroom.users.set([request.user, friend])
             serializer = ChatRoomSerializer(chatroom)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         # ---- GROUP CHAT CREATION ----
-        # Group chat MUST have a name
         if not group_name:
             return Response(
                 {"detail": "Group name is required for group chats."},
@@ -214,7 +227,6 @@ class ChatRoomListCreateView(APIView):
                 serializer = ChatRoomSerializer(existing_room)
                 return Response(serializer.data, status=status.HTTP_200_OK)
 
-            # Create the group chat with a proper name
             chatroom = ChatRoom.objects.create(
                 is_group_chat=True,
                 name=group_name
@@ -232,13 +244,17 @@ class ChatRoomDetailView(APIView):
         return get_object_or_404(ChatRoom, pk=pk, is_deleted=False, users=self.request.user)
 
     def get(self, request, pk, *args, **kwargs):
-        """Retrieve chat room details with messages."""
+        """Retrieve chat room details with messages and exclude the requesting user."""
         chatroom = self.get_object(pk)
         messages = ChatMessage.objects.filter(room=chatroom).order_by('timestamp')
+        other_users = chatroom.users.exclude(id=request.user.id)
+        other_users_serializer = UserListSerializer(other_users, many=True)
         chatroom_serializer = ChatRoomSerializer(chatroom)
         message_serializer = ChatMessageSerializer(messages, many=True)
+
         return Response({
             "chat_room": chatroom_serializer.data,
+            "other_users": other_users_serializer.data,  # Filtered users list
             "messages": message_serializer.data
         }, status=status.HTTP_200_OK)
 

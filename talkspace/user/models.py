@@ -96,43 +96,23 @@ class ChatRoom(models.Model):
         is_new = self._state.adding
         super().save(*args, **kwargs)
 
-        # Fallback for unnamed group chats, but only if no name was provided
-        if is_new and not self.name.strip():  # Only trigger if name is actually empty
-            if self.users.count() == 2 and not self.is_group_chat:
-                users = list(self.users.all())
-                other_user = users[1] if users[0].id == self.users.first().id else users[0]
-                self.name = f"{other_user.first_name} {other_user.last_name}".strip()
+        if is_new and not self.name:
+            user_ids = list(self.users.values_list('id', flat=True))
+            if len(user_ids) == 2 and not self.is_group_chat:
+                user_ids.sort()
+                self.name = f"dm_{user_ids[0]}_{user_ids[1]}"
             else:
-                self.name = f"Room {self.id}"
-            self.save(update_fields=['name'])
+                self.name = f"room_{self.id}"
+            super().save(*args, **kwargs)
     @classmethod
-    def get_or_create_dm(cls, user1, user2, name=None):
-        """
-        Create or get a direct message chat room between two users.
-        Default room name is the full name of the *other user* (first + last name).
-        """
-        # Ensure order doesn't matter for pairing
-        user1, user2 = sorted([user1, user2], key=lambda u: u.id)
-
-        if name is None:
-            # By default, show user2's full name if user1 is the current user
-            other_user = user2 if user1.id == user1.id else user1
-            name = f"{other_user.first_name} {other_user.last_name}".strip()
-            if not name.strip():
-                name = other_user.username  # Fallback to username if no names exist
-
+    def get_or_create_dm(cls, user1, user2):
+        user_ids = sorted([user1.id, user2.id])
+        room_name = f"dm_{user_ids[0]}_{user_ids[1]}"
         room, created = cls.objects.get_or_create(
-            name=name,
-            defaults={'is_group_chat': False}
+            name=room_name, defaults={'is_group_chat': False}
         )
-
         if created:
             room.users.set([user1, user2])
-        else:
-            # Ensure users are correctly set if room already exists
-            if set(room.users.all()) != {user1, user2}:
-                room.users.set([user1, user2])
-
         return room
 
 class ChatMessage(models.Model):
