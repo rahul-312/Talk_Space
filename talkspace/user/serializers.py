@@ -4,56 +4,66 @@ from django.core.exceptions import ValidationError
 from .models import User, FriendRequest, ChatMessage, ChatRoom
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Q
+from django.core.validators import validate_email
 
+PASSWORD_REGEX = r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*()_+={}\[\]:;"\'<>,.?/\\|`~]).{8,}$'
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
     confirm_password = serializers.CharField(write_only=True)
+    profile_picture = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
         model = User
         fields = [
-            'email', 
-            'phone_number', 
-            'username', 
-            'first_name', 
-            'last_name', 
-            'gender', 
-            'password', 
+            'email',
+            'phone_number',
+            'username',
+            'first_name',
+            'last_name',
+            'gender',
+            'profile_picture',
+            'password',
             'confirm_password'
         ]
 
     def validate_phone_number(self, value):
-        if value and not re.match(r'^\+\d{1,4}\d{10}$', value):
-            raise ValidationError("Phone number must start with a country code followed by 10 digits.")
+        """Validate phone number format."""
+        if value and not re.match(r'^\+\d{1,4}\d{7,15}$', value):
+            raise ValidationError("Phone number must start with a country code followed by 7-15 digits.")
         return value
 
     def validate_email(self, value):
-        if value and not value.endswith('@gmail.com'):
-            raise ValidationError("Email must be a Gmail address.")
+        """Ensure email is valid and unique."""
+        try:
+            validate_email(value)
+        except ValidationError:
+            raise ValidationError("Enter a valid email address.")
+        if User.objects.filter(email=value).exists():
+            raise ValidationError("Email is already registered.")
         return value
 
     def validate_username(self, value):
+        """Ensure username is unique."""
         if value and User.objects.filter(username=value).exists():
             raise ValidationError("Username is already taken.")
         return value
 
     def validate_password(self, value):
-        if not re.match(
-            r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*()_+={}\[\]:;"\'<>,.?/\\|`~]).{8,}$', value
-        ):
+        """Ensure password meets security requirements."""
+        if not re.match(PASSWORD_REGEX, value):
             raise ValidationError(
                 "Password must be at least 8 characters long, contain at least one letter, one number, and one special character."
             )
         return value
 
     def validate(self, data):
-        # Check if password and confirm_password match
+        """Check if password and confirm_password match."""
         if data.get('password') != data.get('confirm_password'):
             raise ValidationError({"confirm_password": "Passwords do not match."})
         return data
 
     def create(self, validated_data):
-        # Remove confirm_password since it's not needed for user creation
+        """Create and return a new user."""
         validated_data.pop('confirm_password', None)
         user = User.objects.create_user(
             email=validated_data.get('email'),
@@ -62,9 +72,11 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             first_name=validated_data['first_name'],
             last_name=validated_data['last_name'],
             gender=validated_data['gender'],
-            password=validated_data['password']
+            password=validated_data['password'],
+            profile_picture=validated_data.get('profile_picture')
         )
         return user
+
 
 class UserLoginSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False)
@@ -106,10 +118,24 @@ class UserLoginSerializer(serializers.Serializer):
             'refresh': str(refresh)
         }
 
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "email",
+            "phone_number",
+            "username",
+            "first_name",
+            "last_name",
+            "gender",
+            "profile_picture",
+        ]
+        read_only_fields = ["email", "gender"]
+
 class UserListSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['email', 'phone_number', 'username', 'first_name', 'last_name', 'gender']
+        fields = ['email', 'phone_number', 'username', 'first_name', 'last_name', 'gender',"profile_picture"]
     
 class FriendRequestSerializer(serializers.ModelSerializer):
     receiver = serializers.CharField()
@@ -175,4 +201,4 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 class FriendSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email',"profile_picture"]

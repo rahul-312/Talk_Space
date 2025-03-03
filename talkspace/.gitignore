@@ -12,3 +12,6 @@ Config.toml
 
 __pycache__/
 .env
+
+# Ignore the entire media folder
+media/
