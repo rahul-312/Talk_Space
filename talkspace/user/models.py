@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.core.validators import FileExtensionValidator
 
 class UserManager(BaseUserManager):
     def create_user(self, email=None, phone_number=None, password=None, **extra_fields):
@@ -35,6 +36,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     username = models.CharField(max_length=150, unique=True, null=True, blank=True)
     first_name = models.CharField(max_length=30)
     last_name = models.CharField(max_length=30)
+    profile_picture = models.ImageField(
+        upload_to='profile_pictures/',
+        null=True,
+        blank=True,
+        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png'])]
+    )
     gender = models.CharField(max_length=10, choices=Gender.choices)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)

@@ -1,7 +1,7 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer, FriendRequestSerializer,FriendSerializer
+from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer, FriendRequestSerializer,FriendSerializer, UserSerializer
 from .models import User, FriendRequest
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q
@@ -27,6 +27,31 @@ class UserLoginView(APIView):
             tokens = serializer.get_tokens_for_user(user)
             return Response({"message": "Login successful", "tokens": tokens, "user_id": user.id}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+class UserDetailAPIView(APIView):
+    """
+    Retrieve, update, or delete the authenticated user's details.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Retrieve the authenticated user's details."""
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
+
+    def put(self, request):
+        """Update the authenticated user's profile."""
+        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request):
+        """Soft delete: Deactivate the user instead of deleting."""
+        user = request.user
+        user.is_active = False  # Mark user as inactive
+        user.save()
+        return Response({"message": "User account has been deactivated."}, status=status.HTTP_200_OK)
 
 class UserListView(APIView):
     permission_classes = [IsAuthenticated]
