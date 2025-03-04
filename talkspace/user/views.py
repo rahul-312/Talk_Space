@@ -8,6 +8,7 @@ from django.db.models import Q
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import models
 from django.db.models import Count
+from rest_framework.parsers import MultiPartParser, FormParser
 
 class UserRegistrationView(APIView):
     permission_classes = [AllowAny]
@@ -39,7 +40,8 @@ class UserDetailAPIView(APIView):
         return Response(serializer.data)
 
     def put(self, request):
-        """Update the authenticated user's profile."""
+        print("Request data:", request.data)
+        print("Request files:", request.FILES)
         serializer = UserSerializer(request.user, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
