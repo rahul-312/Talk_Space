@@ -5,6 +5,7 @@ from .models import User, FriendRequest, ChatMessage, ChatRoom
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Q
 from django.core.validators import validate_email
+from django.core.validators import FileExtensionValidator
 
 PASSWORD_REGEX = r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*()_+={}\[\]:;"\'<>,.?/\\|`~]).{8,}$'
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -119,6 +120,12 @@ class UserLoginSerializer(serializers.Serializer):
         }
 
 class UserSerializer(serializers.ModelSerializer):
+    profile_picture = serializers.ImageField(
+        required=False, 
+        allow_null=True, 
+        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png'])]
+    )
+
     class Meta:
         model = User
         fields = [
@@ -186,16 +193,22 @@ class ChatRoomSerializer(serializers.ModelSerializer):
 class ChatMessageSerializer(serializers.ModelSerializer):
     first_name = serializers.SerializerMethodField()
     last_name = serializers.SerializerMethodField()
+    profile_picture = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatMessage
-        fields = ['id', 'room', 'user', 'message', 'timestamp', 'is_read', 'first_name', 'last_name']
+        fields = ['id', 'room', 'user', 'message', 'timestamp', 'is_read', 'first_name', 'last_name',"profile_picture",]
 
     def get_first_name(self, obj):
         return obj.user.first_name
 
     def get_last_name(self, obj):
         return obj.user.last_name
+
+    def get_profile_picture(self, obj):
+        if obj.user.profile_picture:
+            return obj.user.profile_picture.url  # Return full URL of the image
+        return None
 
     
 class FriendSerializer(serializers.ModelSerializer):
