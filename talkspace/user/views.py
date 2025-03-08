@@ -2,13 +2,13 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer, FriendRequestSerializer,FriendSerializer, UserSerializer
-from .models import User, FriendRequest
+from .models import User, FriendRequest, AttachedFile
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import models
 from django.db.models import Count
-from rest_framework.parsers import MultiPartParser, FormParser
+from django.urls import reverse
 
 class UserRegistrationView(APIView):
     permission_classes = [AllowAny]
@@ -303,7 +303,7 @@ class ChatRoomDetailView(APIView):
             {"detail": "Chat room deleted successfully."},
             status=status.HTTP_204_NO_CONTENT
         )
-
+import datetime
 class ChatMessageListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -317,7 +317,8 @@ class ChatMessageListCreateView(APIView):
             )
         
         room = get_object_or_404(ChatRoom, id=room_id, is_deleted=False, users=request.user)
-        messages = ChatMessage.objects.filter(room=room).order_by('timestamp')
+        # Only fetch non-deleted messages
+        messages = ChatMessage.objects.filter(room=room, is_deleted=False).order_by('timestamp')
         serializer = ChatMessageSerializer(messages, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -344,7 +345,7 @@ class ChatMessageListCreateView(APIView):
         serializer = ChatMessageSerializer(data=data)
         if serializer.is_valid():
             message = serializer.save(user=request.user, room=room)
-            
+            profile_picture_url = self.get_profile_picture_url(request.user)
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
                 f"chat_{room_id}",
@@ -355,12 +356,110 @@ class ChatMessageListCreateView(APIView):
                     "first_name": request.user.first_name,  # Added
                     "last_name": request.user.last_name,
                     "user": request.user.id,
+                    "profile_picture": profile_picture_url,
                     "timestamp": str(message.timestamp)
                 }
             )
             
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def put(self, request, *args, **kwargs):
+        """Edit only the message content of an existing message."""
+        message_id = request.data.get('message_id')
+        print(message_id)
+        new_message_text = request.data.get('message')
+        print(new_message_text)
+        
+        if not message_id or not new_message_text:
+            return Response(
+                {"error": "message_id and message are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        message = get_object_or_404(ChatMessage, id=message_id, is_deleted=False)
+        print(message)
+        # Check if the user is the message author
+        if message.user != request.user:
+            return Response(
+                {"error": "You can only edit your own messages."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Update only the message field
+        message.message = new_message_text
+        message.save(update_fields=['message'])  # Explicitly update only the 'message' field
+        
+        # Serialize the updated message
+        serializer = ChatMessageSerializer(message)
+        
+        # Send WebSocket event with updated message content
+        channel_layer = get_channel_layer()
+        event = {
+            "type": "chat_message",
+            "message": message.message,  # Only send the updated message content
+            "user": message.user.id,     # Keep user details unchanged
+            "first_name": message.user.first_name,
+            "last_name": message.user.last_name,
+            "profile_picture": self.get_profile_picture_url(message.user),
+            "timestamp": str(message.timestamp),
+            "id": message.id,
+            "action": "edit"
+        }
+        async_to_sync(channel_layer.group_send)(
+            f"chat_{message.room.id}",
+            event
+        )
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request, *args, **kwargs):
+        """Soft delete an existing message."""
+        message_id = request.data.get('message_id')
+        
+        if not message_id:
+            return Response(
+                {"error": "message_id is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        message = get_object_or_404(ChatMessage, id=message_id, is_deleted=False)
+        
+        # Check if the user is the message author
+        if message.user != request.user:
+            return Response(
+                {"error": "You can only delete your own messages."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Soft delete the message
+        message.is_deleted = True
+        message.save(update_fields=['is_deleted'])
+        
+        channel_layer = get_channel_layer()
+        event = {
+            "type": "chat_message",
+            "message": message.message,
+            "first_name": request.user.first_name,
+            "last_name": request.user.last_name,
+            "user": request.user.id,
+            "profile_picture": self.get_profile_picture_url(request.user),
+            "timestamp": str(message.timestamp),
+            "id": message.id,
+            "action": "delete"
+        }
+        async_to_sync(channel_layer.group_send)(
+            f"chat_{message.room.id}",
+            event
+        )
+        
+        return Response({"message": "Message deleted successfully."}, status=status.HTTP_200_OK)
+
+    def get_profile_picture_url(self, user):
+        """Get the URL of the user's profile picture if it exists."""
+        if hasattr(user, 'profile_picture') and user.profile_picture:
+            url = f"{user.profile_picture.url}?v={int(datetime.datetime.now().timestamp())}"
+            return url
+        return None
     
 PEER_CONNECTIONS = {}
 ICE_CANDIDATES = {}
@@ -441,3 +540,111 @@ class IceCandidateView(APIView):
         candidates = ICE_CANDIDATES.get(peer_id, [])
         print("Current ICE Candidates:", ICE_CANDIDATES)
         return Response({'candidates': candidates}, status=status.HTTP_200_OK)
+
+
+class ShareFilesInRoomAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        if 'files' not in request.FILES:
+            return Response({"error": "No files provided. Use 'files' as the key."}, status=400)
+
+        uploaded_files = request.FILES.getlist('files')
+        if len(uploaded_files) == 0:
+            return Response({"error": "Please upload at least 1 file."}, status=400)
+        if len(uploaded_files) > 10:
+            return Response({"error": "You cannot upload more than 10 files at once."}, status=400)
+
+        room_id = request.data.get('room_id')
+        if not room_id:
+            return Response({"error": "Room ID is required."}, status=400)
+        try:
+            room = ChatRoom.objects.get(id=room_id)
+        except ChatRoom.DoesNotExist:
+            return Response({"error": "Chat room not found."}, status=404)
+
+        if request.user not in room.users.all():
+            return Response({"error": "You are not a member of this room."}, status=403)
+
+        for file in uploaded_files:
+            file_size_mb = file.size / (1024 * 1024)
+            if file.name.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+                if file_size_mb > 50:
+                    return Response({"error": f"Video '{file.name}' exceeds 50MB limit."}, status=400)
+            else:
+                if file_size_mb > 100:
+                    return Response({"error": f"File '{file.name}' exceeds 100MB limit."}, status=400)
+
+        # Use provided message, default to "Shared some files" only if empty
+        message_text = request.data.get('message', '').strip() or 'Shared some files'
+        chat_message = ChatMessage.objects.create(
+            room=room,
+            user=request.user,
+            message=message_text
+        )
+
+        saved_files = []
+        total_size = 0
+        for file in uploaded_files:
+            total_size += file.size
+            attached_file = AttachedFile(
+                chat_message=chat_message,
+                file=file,
+                name=file.name,
+                size=file.size,
+                content_type=file.content_type
+            )
+            attached_file.save()
+            saved_files.append({
+                "name": attached_file.name,
+                "size": attached_file.size,
+                "url": attached_file.file.url
+            })
+
+        channel_layer = get_channel_layer()
+        event = {
+            "type": "chat_message",
+            "message": message_text,
+            "first_name": request.user.first_name,
+            "last_name": request.user.last_name,
+            "user": request.user.id,
+            "timestamp": str(chat_message.timestamp),
+            "files": saved_files
+        }
+
+        async_to_sync(channel_layer.group_send)(f"chat_{room_id}", event)
+
+        return Response(
+            {
+                "message": f"Files shared in room '{room.name}' successfully!",
+                "chat_id": chat_message.id,
+                "room": room.name,
+                "files": saved_files,
+                "total_size": total_size
+            },
+            status=201
+        )
+class ViewChatMessageAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, token, *args, **kwargs):
+        chat_message = get_object_or_404(ChatMessage, share_token=token)
+
+        if request.user not in chat_message.room.members.all():
+            return Response({"error": "You are not a member of this room."}, status=403)
+
+        files = [
+            {
+                "name": f.name,
+                "size": f.size,
+                "url": f.file.url
+            } for f in chat_message.files.all()
+        ]
+
+        return Response({
+            "sender": chat_message.sender.username,
+            "room": chat_message.room.name,
+            "message": chat_message.message,
+            "files": files,
+            "timestamp": chat_message.timestamp
+        })

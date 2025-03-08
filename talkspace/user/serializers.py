@@ -28,25 +28,32 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         ]
 
     def validate_phone_number(self, value):
-        """Validate phone number format."""
-        if value and not re.match(r'^\+\d{1,4}\d{7,15}$', value):
-            raise ValidationError("Phone number must start with a country code followed by 7-15 digits.")
+        """Validate phone number format and uniqueness."""
+        if value:
+            if not re.match(r'^\+\d{1,4}\d{7,15}$', value):
+                raise ValidationError("Phone number must start with a country code followed by 7-15 digits.")
+            if User.objects.filter(phone_number=value).exists():
+                raise ValidationError("Phone number is already registered.")
         return value
 
     def validate_email(self, value):
         """Ensure email is valid and unique."""
-        try:
-            validate_email(value)
-        except ValidationError:
-            raise ValidationError("Enter a valid email address.")
-        if User.objects.filter(email=value).exists():
-            raise ValidationError("Email is already registered.")
+        if value:
+            try:
+                validate_email(value)
+            except ValidationError:
+                raise ValidationError("Enter a valid email address.")
+            if User.objects.filter(email=value).exists():
+                raise ValidationError("Email is already registered.")
         return value
 
     def validate_username(self, value):
-        """Ensure username is unique."""
-        if value and User.objects.filter(username=value).exists():
-            raise ValidationError("Username is already taken.")
+        """Ensure username is unique if provided."""
+        if value:
+            if User.objects.filter(username=value).exists():
+                raise ValidationError("Username is already taken.")
+            if len(value) < 3:
+                raise ValidationError("Username must be at least 3 characters long.")
         return value
 
     def validate_password(self, value):
@@ -58,9 +65,14 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        """Check if password and confirm_password match."""
+        """Check if password matches and at least one contact method is provided."""
         if data.get('password') != data.get('confirm_password'):
             raise ValidationError({"confirm_password": "Passwords do not match."})
+        
+        # Ensure at least email or phone_number is provided (consistent with UserManager)
+        if not data.get('email') and not data.get('phone_number'):
+            raise ValidationError("Either an email or phone number must be provided.")
+        
         return data
 
     def create(self, validated_data):
@@ -197,7 +209,10 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ChatMessage
-        fields = ['id', 'room', 'user', 'message', 'timestamp', 'is_read', 'first_name', 'last_name',"profile_picture",]
+        fields = [
+            'id', 'room', 'user', 'message', 'timestamp', 'is_read',
+            'first_name', 'last_name', 'profile_picture'
+        ]
 
     def get_first_name(self, obj):
         return obj.user.first_name
@@ -207,7 +222,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 
     def get_profile_picture(self, obj):
         if obj.user.profile_picture:
-            return obj.user.profile_picture.url  # Return full URL of the image
+            return obj.user.profile_picture.url
         return None
 
     

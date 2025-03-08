@@ -30,25 +30,30 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         msg = await self.create_message(user, message)
 
+        # Get profile picture URL if it exists
+        profile_picture_url = await self.get_profile_picture_url(user)
+
         event = {
             'type': 'chat_message',
             'message': message,
             'first_name': user.first_name,
             'last_name': user.last_name,
-            'user': user.id,  # Changed to 'user' for consistency with serializer
+            'user': user.id,
+            'profile_picture': profile_picture_url,
             'timestamp': str(msg.timestamp),
         }
         print(f"Sending event from receive: {event}")
         await self.channel_layer.group_send(self.room_group_name, event)
 
     async def chat_message(self, event):
-        print(f"Received event in chat_message: {event}")
+        # print(f"Received event in chat_message: {event}")
         try:
             await self.send(text_data=json.dumps({
                 'message': event.get('message', ''),  # Graceful fallback
                 'first_name': event.get('first_name', 'Unknown'),
                 'last_name': event.get('last_name', ''),
                 'user': event.get('user', None),  # Changed to 'user'
+                'profile_picture': event.get('profile_picture', None),
                 'timestamp': event.get('timestamp', ''),
             }))
         except Exception as e:
@@ -58,7 +63,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'first_name': 'System',
                 'last_name': '',
                 'user': None,
-                'timestamp': str(datetime.now()),
+                'profile_picture': None,
+                'timestamp': str(datetime.datetime.now()),
             }))
 
     @database_sync_to_async
@@ -69,3 +75,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             user=user,
             message=message
         )
+
+    @database_sync_to_async
+    def get_profile_picture_url(self, user):
+        """Get the URL of the user's profile picture if it exists."""
+        if user.profile_picture:
+            return user.profile_picture.url
+        return None
