@@ -203,7 +203,7 @@ class ChatRoomListCreateView(APIView):
 
     def post(self, request, *args, **kwargs):
         """Create or get a chat room (DM or group based on number of users)."""
-        other_user_ids = request.data.get("users", [])
+        other_user_ids = request.data.get("user_ids", [])
         group_name = request.data.get("name", "").strip()
 
         if not other_user_ids:
@@ -225,9 +225,6 @@ class ChatRoomListCreateView(APIView):
             # If only one user, create a DM
             friend = friends.first()
             chatroom = ChatRoom.get_or_create_dm(request.user, friend)
-            # Ensure users are set if not done in get_or_create_dm
-            if not chatroom.users.exists():
-                chatroom.users.set([request.user, friend])
             serializer = ChatRoomSerializer(chatroom)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
