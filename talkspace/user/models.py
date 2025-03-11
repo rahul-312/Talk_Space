@@ -111,15 +111,41 @@ class ChatRoom(models.Model):
             else:
                 self.name = f"room_{self.id}"
             super().save(*args, **kwargs)
+
+    @classmethod
     @classmethod
     def get_or_create_dm(cls, user1, user2):
+        from django.db.models import Count
+
+        # Check for existing non-deleted DM with exactly these two users
         user_ids = sorted([user1.id, user2.id])
-        room_name = f"dm_{user_ids[0]}_{user_ids[1]}"
-        room, created = cls.objects.get_or_create(
-            name=room_name, defaults={'is_group_chat': False}
+        existing_dm = cls.objects.filter(
+            is_group_chat=False,
+            is_deleted=False
+        ).annotate(user_count=Count('users')).filter(
+            user_count=2,
+            users__id=user_ids[0]
+        ).filter(
+            users__id=user_ids[1]
+        ).first()
+
+        if existing_dm:
+            return existing_dm
+
+        # Create a new DM with a unique name
+        base_name = f"dm_{user_ids[0]}_{user_ids[1]}"
+        room_name = base_name
+        counter = 1
+        while cls.objects.filter(name=room_name).exists():
+            room_name = f"{base_name}_{counter}"
+            counter += 1
+
+        room = cls.objects.create(
+            name=room_name,
+            is_group_chat=False
         )
-        if created:
-            room.users.set([user1, user2])
+        room.users.set([user1, user2])
+        room.save()
         return room
 
 class ChatMessage(models.Model):
