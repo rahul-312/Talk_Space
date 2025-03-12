@@ -363,10 +363,7 @@ class ChatMessageListCreateView(APIView):
     def put(self, request, *args, **kwargs):
         """Edit only the message content of an existing message."""
         message_id = request.data.get('message_id')
-        print(message_id)
         new_message_text = request.data.get('message')
-        print(new_message_text)
-        
         if not message_id or not new_message_text:
             return Response(
                 {"error": "message_id and message are required."},
@@ -374,22 +371,14 @@ class ChatMessageListCreateView(APIView):
             )
 
         message = get_object_or_404(ChatMessage, id=message_id, is_deleted=False)
-        print(message)
-        # Check if the user is the message author
         if message.user != request.user:
             return Response(
                 {"error": "You can only edit your own messages."},
                 status=status.HTTP_403_FORBIDDEN
             )
-
-        # Update only the message field
         message.message = new_message_text
-        message.save(update_fields=['message'])  # Explicitly update only the 'message' field
-        
-        # Serialize the updated message
+        message.save(update_fields=['message'])
         serializer = ChatMessageSerializer(message)
-        
-        # Send WebSocket event with updated message content
         channel_layer = get_channel_layer()
         event = {
             "type": "chat_message",
