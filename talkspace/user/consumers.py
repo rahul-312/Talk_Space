@@ -14,14 +14,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
             self.channel_name
         )
         await self.accept()
-        print(f"WebSocket connected for room: {self.room_id}")
+        # print(f"WebSocket connected for room: {self.room_id}")
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(
             self.room_group_name,
             self.channel_name
         )
-        print(f"WebSocket disconnected for room: {self.room_id}, code: {close_code}")
+        # print(f"WebSocket disconnected for room: {self.room_id}, code: {close_code}")
 
     async def receive(self, text_data):
         text_data_json = json.loads(text_data)
@@ -41,23 +41,32 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'user': user.id,
             'profile_picture': profile_picture_url,
             'timestamp': str(msg.timestamp),
+            'id': msg.id,  # Added message ID
+            'action': 'create'  # Added action field
         }
-        print(f"Sending event from receive: {event}")
+        # print(f"Sending event from receive: {event}")
         await self.channel_layer.group_send(self.room_group_name, event)
 
     async def chat_message(self, event):
         # print(f"Received event in chat_message: {event}")
         try:
-            await self.send(text_data=json.dumps({
-                'message': event.get('message', ''),  # Graceful fallback
+            # Get the action from the event, default to 'create'
+            action = event.get('action', 'create')
+            
+            message_data = {
+                'message': event.get('message', ''),
                 'first_name': event.get('first_name', 'Unknown'),
                 'last_name': event.get('last_name', ''),
-                'user': event.get('user', None),  # Changed to 'user'
+                'user': event.get('user', None),
                 'profile_picture': event.get('profile_picture', None),
                 'timestamp': event.get('timestamp', ''),
-            }))
+                'id': event.get('id', None),  # Added message ID
+                'action': action  # Added action field
+            }
+
+            await self.send(text_data=json.dumps(message_data))
         except Exception as e:
-            print(f"Error in chat_message: {e}, event: {event}")
+            # print(f"Error in chat_message: {e}, event: {event}")
             await self.send(text_data=json.dumps({
                 'message': 'Error processing message',
                 'first_name': 'System',
@@ -65,6 +74,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'user': None,
                 'profile_picture': None,
                 'timestamp': str(datetime.datetime.now()),
+                'action': 'error'  # Added action field for errors
             }))
 
     @database_sync_to_async
