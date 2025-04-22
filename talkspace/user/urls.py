@@ -6,7 +6,7 @@ from .views import (
     ChatMessageListCreateView, PendingFriendRequestsView, OfferView, 
     AnswerView, GetAnswerView, GetOfferView, IceCandidateView, 
     SetAnswerView, SetOfferView, UserDetailAPIView, ShareFilesInRoomAPIView,
-    ViewChatMessageAPIView
+    ViewChatMessageAPIView, ForgotPasswordView, ResetPasswordView
 )
 
 urlpatterns = [
@@ -33,4 +33,6 @@ urlpatterns = [
     path('ice_candidate/<str:peer_id>/', IceCandidateView.as_view(), name='get_ice_candidates'),
     path('share-files-in-room/', ShareFilesInRoomAPIView.as_view(), name='share-files-in-room'),
     path('chat/<uuid:token>/', ViewChatMessageAPIView.as_view(), name='view_chat_message'),  # From previous response
+    path('forgot-password/', ForgotPasswordView.as_view(), name='forgot-password'),
+    path('reset-password/', ResetPasswordView.as_view(), name='reset-password'),
 ]
