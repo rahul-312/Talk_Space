@@ -1,14 +1,12 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer, FriendRequestSerializer,FriendSerializer, UserSerializer
-from .models import User, FriendRequest, AttachedFile
+from .serializers import UserRegistrationSerializer , UserLoginSerializer,  UserListSerializer, FriendRequestSerializer,FriendSerializer, UserSerializer, ForgotPasswordSerializer, ResetPasswordSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.db import models
 from django.db.models import Count
-from django.urls import reverse
+from .models import User,FriendRequest
 
 class UserRegistrationView(APIView):
     permission_classes = [AllowAny]
@@ -61,6 +59,26 @@ class UserListView(APIView):
         users = User.objects.all()
         serializer = UserListSerializer(users, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"detail": "Password reset link sent."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ResetPasswordView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = ResetPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"detail": "Password has been reset."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class UserSearchView(APIView):
     permission_classes = [IsAuthenticated]
