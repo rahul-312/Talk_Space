@@ -238,6 +238,7 @@ from django.utils.encoding import force_bytes
 from django.conf import settings
 from django.core.mail import send_mail
 from django.utils.http import urlsafe_base64_decode
+from .utils import send_password_reset_email
 
 
 class ForgotPasswordSerializer(serializers.Serializer):
@@ -252,16 +253,10 @@ class ForgotPasswordSerializer(serializers.Serializer):
         user = User.objects.get(email=self.validated_data['email'])
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
-
         reset_link = f"http://localhost:3000/reset-password/{uid}/{token}/"
+        
+        send_password_reset_email(user, reset_link)
 
-        send_mail(
-            subject="Reset Your Password",
-            message=f"Hi {user.first_name},\n\nClick the link below to reset your password:\n{reset_link}",
-            from_email=settings.EMAIL_HOST_USER,
-            recipient_list=[user.email],
-            fail_silently=False,
-        )
 
 class ResetPasswordSerializer(serializers.Serializer):
     uid = serializers.CharField()
