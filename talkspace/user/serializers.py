@@ -6,6 +6,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Q
 from django.core.validators import validate_email
 from django.core.validators import FileExtensionValidator
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_decode
+from .utils import send_password_reset_email
 
 PASSWORD_REGEX = r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*()_+={}\[\]:;"\'<>,.?/\\|`~]).{8,}$'
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -232,13 +237,6 @@ class FriendSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'first_name', 'last_name', 'email',"profile_picture"]
 
 
-from django.contrib.auth.tokens import default_token_generator
-from django.utils.http import urlsafe_base64_encode
-from django.utils.encoding import force_bytes
-from django.conf import settings
-from django.core.mail import send_mail
-from django.utils.http import urlsafe_base64_decode
-from .utils import send_password_reset_email
 
 
 class ForgotPasswordSerializer(serializers.Serializer):
